@@ -1,0 +1,66 @@
+# Environment and credentials
+.env
+.env.local
+.env.*.local
+credentials.json
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.kiro/
+
+# Hypothesis
+.hypothesis/
+
+# Sensitive data - gradebook exports and HTML
+gradebook/
+gradebook_*.xlsx
+gradebook_*.html
+debug_gradebook.html
+gradebook_page.html
+term_grades_page.html
+
+# Debug and temporary scripts
+fetch_html.py
+fetch_term_grades_html.py
+run.md
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
