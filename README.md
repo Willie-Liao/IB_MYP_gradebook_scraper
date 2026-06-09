@@ -38,6 +38,7 @@ python3 -m src.gui
 | **Gradebook URL** | Any ManageBac URL for the class/term (tasks or term-grades link) |
 | **Email** | Prefilled from `.env` (`MANAGEBAC_EMAIL`) if set |
 | **Password** | Prefilled from `.env` (`MANAGEBAC_PASSWORD`) if set |
+| **Output Dir** | Prefilled from `.env` (`MANAGEBAC_OUTPUT_DIR`, default `gradebook/`) |
 
 Example URL:
 

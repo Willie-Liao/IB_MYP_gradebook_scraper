@@ -12,7 +12,13 @@ from .auth import Authenticator, SessionManager
 from .exceptions import AuthenticationError, ScraperError
 from .extractors import ScoreExtractor, StudentExtractor, TaskExtractor, TermGradeExtractor
 from .models import GradebookData, Score, Student, Task, TermGrade
-from .url_utils import parse_school_from_url, resolve_gradebook_urls
+from .url_utils import (
+    extract_term_id_from_html,
+    normalize_gradebook_url,
+    parse_class_term_ids,
+    parse_school_from_url,
+    resolve_gradebook_urls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,7 @@ class GradebookScraper:
     def from_gradebook_url(
         cls, gradebook_url: str, email: str, password: str
     ) -> GradebookScraper:
-        school_code, domain = parse_school_from_url(gradebook_url)
+        school_code, domain = parse_school_from_url(normalize_gradebook_url(gradebook_url))
         return cls(school_code, email, password, domain)
 
     def authenticate(self) -> None:
@@ -70,17 +76,38 @@ class GradebookScraper:
 
     def fetch_data(self, gradebook_url: str) -> GradebookData:
         """Fetch term grades (roster + A-D) then tasks (scores + comments)."""
+        gradebook_url = normalize_gradebook_url(gradebook_url)
         tqdm.write(f"Starting gradebook scrape for: {gradebook_url}")
+
+        parsed = parse_class_term_ids(gradebook_url)
+        if not parsed:
+            raise ScraperError(f"Could not parse class ID from URL: {gradebook_url}")
+        _, term_id = parsed
+
+        term_soup = None
+        if term_id is None:
+            tqdm.write("Discovering term ID from gradebook page...")
+            entry_soup = self._fetch_page(gradebook_url)
+            term_id = extract_term_id_from_html(str(entry_soup))
+            if not term_id:
+                raise ScraperError(
+                    "Could not discover term ID from gradebook page. "
+                    "Use a URL that includes /gradebook/term/<term_id>/."
+                )
+            tqdm.write(f"  Found term ID: {term_id}")
+            if "myp-term-grades" in gradebook_url:
+                term_soup = entry_soup
 
         try:
             _, term_grades_url, tasks_url, class_name, term_name = resolve_gradebook_urls(
-                gradebook_url
+                gradebook_url, term_id=term_id
             )
         except ValueError as e:
             raise ScraperError(str(e)) from e
 
         tqdm.write("Fetching term grades page...")
-        term_soup = self._fetch_page(term_grades_url)
+        if term_soup is None:
+            term_soup = self._fetch_page(term_grades_url)
         term_grades = self._safe_extract(TermGradeExtractor.extract, term_soup, "term grades")
         tqdm.write(f"  Found {len(term_grades)} students on term grades page")
 

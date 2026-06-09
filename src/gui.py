@@ -39,7 +39,15 @@ from .scraper import GradebookScraper
 from .student_picker import filter_gradebook_data
 
 
-DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
+def _default_output_dir() -> str:
+    raw = os.environ.get("MANAGEBAC_OUTPUT_DIR", "gradebook")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    return str(path)
+
+
+DEFAULT_OUTPUT_DIR = _default_output_dir()
 
 
 class GradebookScraperGUI:
