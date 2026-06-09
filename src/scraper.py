@@ -11,7 +11,7 @@ from tqdm import tqdm
 from .auth import Authenticator, SessionManager
 from .exceptions import AuthenticationError, ScraperError
 from .extractors import ScoreExtractor, StudentExtractor, TaskExtractor, TermGradeExtractor
-from .models import GradebookData, Student, TermGrade
+from .models import GradebookData, Score, Student, Task, TermGrade
 from .url_utils import parse_school_from_url, resolve_gradebook_urls
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 def _normalize_name(name: str) -> str:
     return " ".join(name.upper().split())
+
+
+def _filter_tasks_with_scores(tasks: list[Task], scores: list[Score]) -> list[Task]:
+    """Keep only tasks that produced criterion-based scores."""
+    scored_task_ids = {score.task_id for score in scores}
+    return [task for task in tasks if task.id in scored_task_ids]
 
 
 class GradebookScraper:
@@ -91,6 +97,12 @@ class GradebookScraper:
             "scores",
         )
         tqdm.write(f"  Found {len(scores)} scores")
+
+        tasks_before = len(tasks)
+        tasks = _filter_tasks_with_scores(tasks, scores)
+        skipped = tasks_before - len(tasks)
+        if skipped:
+            tqdm.write(f"  Skipped {skipped} tasks without criterion marks")
 
         return GradebookData(
             students=students,
