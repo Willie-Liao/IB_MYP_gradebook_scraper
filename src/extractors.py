@@ -725,313 +725,159 @@ class ScoreExtractor:
 
 
 class TermGradeExtractor:
-    """Extracts term grade information from MYP term grades page."""
-    
-    # The class name for the main grid table element
-    GRID_TABLE_MAIN_CLASS: str = "grid-table-main"
-    
-    # Valid term grade values
+    """Extracts term grade information from the MYP term grades page."""
+
     VALID_GRADES: set[str] = {"1", "2", "3", "4", "5", "6", "7", "8", "INC", "N/A"}
-    
+    CRITERION_LETTERS: tuple[str, ...] = ("A", "B", "C", "D")
+
     @staticmethod
     def extract(soup: BeautifulSoup) -> list[TermGrade]:
-        """Extract term grades from MYP term grades page.
-        
-        Locates the grid-table-main element and parses student names
-        with their corresponding final grades.
-        
-        Args:
-            soup: BeautifulSoup object of the term grades page
-            
-        Returns:
-            list[TermGrade]: List of TermGrade objects with student_name and grade.
-                            Returns empty list if no grades found.
-        """
+        """Extract student term profiles from fusion-card layout on myp-term-grades."""
+        cards = TermGradeExtractor._find_student_cards(soup)
+        if not cards:
+            logger.warning("No student grade cards found on term grades page")
+            return []
+
         term_grades: list[TermGrade] = []
-        
-        # Requirements 5.2: Locate the "grid-table-main" element
-        # Try multiple possible class names in case ManageBac changed structure
-        grid_table = None
-        table_classes = [
-            TermGradeExtractor.GRID_TABLE_MAIN_CLASS,  # "grid-table-main"
-            "grid-table",
-            "term-grades-table",
-            "myp-grades-table",
-            "gradebook-table"
-        ]
-        
-        for table_class in table_classes:
-            grid_table = ElementFinder.find_by_class(
-                soup,
-                table_class,
-                raise_on_not_found=False
-            )
-            if grid_table:
-                logger.info(f"Found term grades table with class: {table_class}")
-                break
-        
-        if not grid_table:
-            # Try finding by partial class match
-            grid_table = soup.find(
-                class_=lambda c: c is not None and (
-                    "grid-table" in str(c) or 
-                    "term-grade" in str(c) or
-                    "myp-grade" in str(c)
-                )
-            )
-            if grid_table:
-                logger.info(f"Found term grades table with partial class match")
-        
-        if not grid_table:
-            # Try finding any table-like structure
-            grid_table = soup.find("table")
-            if grid_table:
-                logger.info("Found term grades using <table> tag")
-        
-        if not grid_table:
-            # ElementFinder already logged the warning with suggestions
-            logger.warning(
-                "Could not find term grades table. "
-                "Tried classes: " + ", ".join(table_classes)
-            )
-            # Debug: log all classes found in the page
-            all_classes = set()
-            for elem in soup.find_all(True):
-                classes = elem.get("class")
-                if classes:
-                    if isinstance(classes, list):
-                        all_classes.update(classes)
-                    else:
-                        all_classes.add(str(classes))
-            if all_classes:
-                logger.debug(f"Available classes in page: {sorted(all_classes)}")
-            return term_grades
-        
-        # Requirements 5.3: Find all student rows and extract name-grade pairs
-        # Look for rows containing both student name and final grade
-        student_rows = TermGradeExtractor._find_student_rows(grid_table)
-        
-        if not student_rows:
-            logger.warning(
-                "No student rows found in grid table. "
-                "Expected rows with student names and final grades."
-            )
-            return term_grades
-        
-        for row in student_rows:
-            student_name = TermGradeExtractor._extract_student_name(row)
-            grade = TermGradeExtractor._extract_final_grade(row)
-            
-            if student_name:
-                # Requirements 5.4, 5.5: Handle numeric (1-8), INC, and N/A values
-                # Preserve the grade value as-is
-                term_grades.append(TermGrade(
-                    student_name=student_name,
-                    grade=grade if grade else "N/A"
-                ))
-        
-        if not term_grades:
-            logger.warning(
-                "Could not extract any valid term grades. "
-                "Student rows were found but data could not be parsed."
-            )
-        else:
-            logger.info(f"Extracted {len(term_grades)} term grades.")
-        
+        for card in cards:
+            profile = TermGradeExtractor._extract_card(card)
+            if profile:
+                term_grades.append(profile)
+
+        logger.info(f"Extracted {len(term_grades)} term grade profiles")
         return term_grades
-    
+
     @staticmethod
-    def _find_student_rows(grid_table: Tag) -> list[Tag]:
-        """Find all student rows in the grid table.
-        
-        Looks for row elements that contain both student name and grade elements.
-        
-        Args:
-            grid_table: BeautifulSoup Tag element of the grid table
-            
-        Returns:
-            List of Tag elements representing student rows
-        """
-        rows: list[Tag] = []
-        
-        # Strategy 1: Look for elements that contain student-name class
-        student_name_elements = grid_table.find_all(
-            class_=lambda c: c is not None and "student-name" in str(c)
+    def _find_student_cards(soup: BeautifulSoup) -> list[Tag]:
+        """Locate per-student fusion cards on the term grades page."""
+        cards = soup.find_all(
+            class_=lambda c: c is not None and "student-grade" in str(c).split()
         )
-        
-        logger.debug(f"Found {len(student_name_elements)} student-name elements")
-        
-        for name_elem in student_name_elements:
-            if not isinstance(name_elem, Tag):
-                continue
-            
-            # Find the parent row that contains both name and grade
-            parent = name_elem.parent
-            while parent and parent != grid_table:
-                if isinstance(parent, Tag):
-                    # Check if this parent contains a final-grade element
-                    # Try multiple possible class names for the grade element
-                    grade_elem = parent.find(
-                        class_=lambda c: c is not None and (
-                            "final-grade" in str(c) or 
-                            "term-grade" in str(c) or
-                            "myp-grade" in str(c) or
-                            "grade-value" in str(c) or
-                            "grade" in str(c)
-                        )
-                    )
-                    if grade_elem:
-                        rows.append(parent)
-                        logger.debug(f"Found row with student name and grade")
-                        break
-                parent = parent.parent
-        
-        # Strategy 2: If no rows found, try looking for grid-table-row elements
-        if not rows:
-            logger.debug("Strategy 1 failed, trying grid-table-row elements")
-            row_elements = grid_table.find_all(
+        if cards:
+            return [c for c in cards if isinstance(c, Tag)]
+
+        grid_table = soup.find(class_=lambda c: c is not None and "grid-table-main" in str(c))
+        if grid_table and isinstance(grid_table, Tag):
+            rows = grid_table.find_all(
                 class_=lambda c: c is not None and "grid-table-row" in str(c)
             )
-            logger.debug(f"Found {len(row_elements)} grid-table-row elements")
-            
-            for row in row_elements:
-                if isinstance(row, Tag):
-                    # Check if row has both student name and grade
-                    has_name = row.find(
-                        class_=lambda c: c is not None and "student-name" in str(c)
-                    )
-                    has_grade = row.find(
-                        class_=lambda c: c is not None and (
-                            "final-grade" in str(c) or 
-                            "term-grade" in str(c) or
-                            "myp-grade" in str(c) or
-                            "grade-value" in str(c) or
-                            "grade" in str(c)
-                        )
-                    )
-                    if has_name and has_grade:
-                        rows.append(row)
-                        logger.debug(f"Found row with both name and grade")
-        
-        # Strategy 3: Look for rows with data-student attribute
-        if not rows:
-            logger.debug("Strategy 2 failed, trying data-student attribute")
-            data_student_rows = grid_table.find_all(attrs={"data-student": True})
-            logger.debug(f"Found {len(data_student_rows)} elements with data-student")
-            for row in data_student_rows:
-                if isinstance(row, Tag):
-                    rows.append(row)
-        
-        # Strategy 4: Try finding all divs/rows and look for name+grade pattern
-        if not rows:
-            logger.debug("Strategy 3 failed, trying all divs with name+grade pattern")
-            all_divs = grid_table.find_all("div")
-            for div in all_divs:
-                if isinstance(div, Tag):
-                    # Check if this div or its children contain both name and grade
-                    text_content = div.get_text(strip=True)
-                    # Look for patterns like "StudentName 7" or similar
-                    if any(grade in text_content for grade in ["1", "2", "3", "4", "5", "6", "7", "8", "INC", "N/A"]):
-                        # This might be a row, add it for processing
-                        rows.append(div)
-        
-        logger.info(f"Found {len(rows)} student rows total")
-        return rows
-    
+            return [r for r in rows if isinstance(r, Tag)]
+
+        return []
+
+    @staticmethod
+    def _extract_card(card: Tag) -> TermGrade | None:
+        student_name = TermGradeExtractor._extract_student_name(card)
+        if not student_name:
+            return None
+
+        return TermGrade(
+            student_name=student_name,
+            grade=TermGradeExtractor._extract_final_grade(card) or "N/A",
+            user_id=TermGradeExtractor._extract_user_id(card),
+            criterion_a=TermGradeExtractor._extract_criterion(card, "A"),
+            criterion_b=TermGradeExtractor._extract_criterion(card, "B"),
+            criterion_c=TermGradeExtractor._extract_criterion(card, "C"),
+            criterion_d=TermGradeExtractor._extract_criterion(card, "D"),
+        )
+
+    @staticmethod
+    def _extract_user_id(card: Tag) -> str | None:
+        link = card.select_one("h4.student-name a[href], .student-name a[href]")
+        if not link or not isinstance(link, Tag):
+            return None
+        href = link.get("href", "")
+        if not isinstance(href, str):
+            return None
+        parts = href.rstrip("/").split("/")
+        if parts and parts[-1].isdigit():
+            return parts[-1]
+        return None
+
     @staticmethod
     def _extract_student_name(row: Tag) -> str | None:
-        """Extract student name from a row element.
-        
-        Requirements 5.3: Match student names from "h4.cell.flex-fill.student-name"
-        
-        Args:
-            row: BeautifulSoup Tag element containing student data
-            
-        Returns:
-            Student name string, or None if not found
-        """
-        # Primary strategy: Look for h4 with student-name class
+        """Extract student name from a card or legacy row element."""
+        name_link = row.select_one("h4.student-name a.text-break, .student-name a.text-break")
+        if name_link and isinstance(name_link, Tag):
+            text = name_link.get_text(strip=True)
+            if text:
+                return text
+
         name_elem = row.find(
-            "h4",
             class_=lambda c: c is not None and "student-name" in str(c)
         )
-        
         if name_elem and isinstance(name_elem, Tag):
             text = name_elem.get_text(strip=True)
             if text:
                 return text
-        
-        # Fallback: Look for any element with student-name class
-        name_elem = row.find(
-            class_=lambda c: c is not None and "student-name" in str(c)
-        )
-        
-        if name_elem and isinstance(name_elem, Tag):
-            text = name_elem.get_text(strip=True)
-            if text:
-                return text
-        
         return None
-    
+
     @staticmethod
     def _extract_final_grade(row: Tag) -> str | None:
-        """Extract final grade from a row element.
-        
-        Requirements 5.3: Match grades from "div.cell.final-grade"
-        Requirements 5.4: Handle numeric (1-8), INC, and N/A values
-        Requirements 5.5: Preserve INC and N/A values
-        
-        Args:
-            row: BeautifulSoup Tag element containing grade data
-            
-        Returns:
-            Grade string (1-8, INC, or N/A), or None if not found
-        """
-        # Try multiple possible class names for the grade element
-        grade_classes = ["final-grade", "term-grade", "myp-grade", "grade-value"]
-        
-        grade_elem = None
-        for grade_class in grade_classes:
-            # Primary strategy: Look for div with grade class
-            grade_elem = row.find(
-                "div",
-                class_=lambda c: c is not None and grade_class in str(c)
-            )
-            if grade_elem and isinstance(grade_elem, Tag):
-                break
-            
-            # Fallback: Look for any element with grade class
-            grade_elem = row.find(
-                class_=lambda c: c is not None and grade_class in str(c)
-            )
-            if grade_elem and isinstance(grade_elem, Tag):
-                break
-        
+        """Extract final grade (out of 8) from a card or legacy row."""
+        grade_elem = row.select_one("p.js-final-grade-final")
         if grade_elem and isinstance(grade_elem, Tag):
             text = grade_elem.get_text(strip=True)
             if text:
-                # Normalize the grade value
-                normalized = TermGradeExtractor._normalize_grade(text)
-                return normalized
-        
-        # Alternative: Look for data-grade attribute
-        grade_attr = row.get("data-grade")
-        if grade_attr:
-            grade_str = grade_attr[0] if isinstance(grade_attr, list) else grade_attr
-            if isinstance(grade_str, str):
-                return TermGradeExtractor._normalize_grade(grade_str)
-        
-        # Alternative: Look for elements with grade-related text
-        # This handles cases where the grade might be in a span or other element
-        for elem in row.find_all(["span", "div", "td"]):
-            if isinstance(elem, Tag):
-                text = elem.get_text(strip=True)
-                # Check if it looks like a grade (1-8, INC, N/A)
-                if text in ("1", "2", "3", "4", "5", "6", "7", "8", "INC", "N/A"):
-                    return text
-        
+                return TermGradeExtractor._normalize_grade(text)
+
+        for grade_class in ("final-grade", "term-grade", "myp-grade"):
+            grade_elem = row.find(class_=lambda c, gc=grade_class: c is not None and gc in str(c))
+            if grade_elem and isinstance(grade_elem, Tag):
+                text = grade_elem.get_text(strip=True)
+                if text:
+                    return TermGradeExtractor._normalize_grade(text)
         return None
-    
+
+    @staticmethod
+    def _extract_criterion(card: Tag, letter: str) -> str | None:
+        """Extract selected criterion score (A-D) from a form-group block."""
+        for group in card.select(".form-group"):
+            if not isinstance(group, Tag):
+                continue
+            label = group.select_one("label")
+            label_text = (
+                label.get_text(strip=True)
+                if label and isinstance(label, Tag)
+                else group.get_text(" ", strip=True)
+            )
+            if not label_text.upper().startswith(f"{letter}:"):
+                continue
+
+            # Live ManageBac uses points-button bars (final-criteria-score), not radios.
+            pressed = group.select_one(
+                ".final-criteria-score[aria-pressed='true'], "
+                ".final-criteria-score.selected"
+            )
+            if pressed and isinstance(pressed, Tag):
+                text = pressed.get_text(strip=True)
+                if text:
+                    return TermGradeExtractor._normalize_grade(text)
+
+            checked = group.find("input", checked=True)
+            if checked and isinstance(checked, Tag):
+                value = checked.get("value")
+                if isinstance(value, str) and value.strip():
+                    return TermGradeExtractor._normalize_grade(value)
+                parent_label = checked.find_parent("label")
+                if parent_label and isinstance(parent_label, Tag):
+                    return TermGradeExtractor._normalize_grade(
+                        parent_label.get_text(strip=True)
+                    )
+
+            active = group.find(
+                class_=lambda c: c is not None and any(
+                    token in str(c).split()
+                    for token in ("active", "selected", "checked")
+                )
+            )
+            if active and isinstance(active, Tag):
+                text = active.get_text(strip=True)
+                if text:
+                    return TermGradeExtractor._normalize_grade(text)
+
+        return None
+
     @staticmethod
     def _normalize_grade(grade_text: str) -> str:
         """Normalize a grade value to standard format.

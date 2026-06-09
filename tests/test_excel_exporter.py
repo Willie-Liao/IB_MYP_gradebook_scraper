@@ -96,7 +96,7 @@ def gradebook_data_strategy(draw: st.DrawFn) -> GradebookData:
         student_strategy(),
         min_size=1,
         max_size=10,
-        unique_by=lambda x: x.id
+        unique_by=lambda x: x.name,
     ))
     
     # Generate tasks (at least 1)
@@ -287,11 +287,7 @@ def test_excel_export_round_trip(data: GradebookData) -> None:
 @given(data=gradebook_data_strategy())
 @settings(max_examples=100)
 def test_excel_export_preserves_comments(data: GradebookData) -> None:
-    """Property test: Comments are preserved as cell notes.
-    
-    For any GradebookData with scores containing comments, the exported
-    Excel file SHALL include those comments as cell notes.
-    """
+    """Property test: Comments are preserved in adjacent comment columns."""
     # Create a temporary file for the export
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         output_path = tmp.name
@@ -302,46 +298,27 @@ def test_excel_export_preserves_comments(data: GradebookData) -> None:
         
         # Read back the exported data including comments
         excel_data = read_excel_data(output_path)
-        comments = excel_data["comments"]
         headers = excel_data["headers"]
-        
-        # Build a mapping of expected comments
+        rows = excel_data["rows"]
         scores_with_comments = [s for s in data.scores if s.comment]
-        
-        # For each score with a comment, verify it exists in the Excel file
+
         for score in scores_with_comments:
-            # Find the student row
-            student_row_idx = None
-            for idx, student in enumerate(data.students):
-                if student.id == score.student_id:
-                    student_row_idx = idx + 2  # +2 for 1-indexed and header row
-                    break
-            
-            if student_row_idx is None:
-                continue
-            
-            # Find the task-criterion column
+            student = next((s for s in data.students if s.id == score.student_id), None)
             task = next((t for t in data.tasks if t.id == score.task_id), None)
-            if task is None:
+            if student is None or task is None:
                 continue
-            
-            header = f"{task.name} ({score.criterion})"
-            col_idx = None
-            for idx, h in enumerate(headers, start=1):
-                if h == header:
-                    col_idx = idx
-                    break
-            
-            if col_idx is None:
+
+            comment_header = f"{task.name} ({score.criterion}) Comment"
+            if comment_header not in headers:
                 continue
-            
-            # Check if comment exists at this cell
-            comment_key = (student_row_idx, col_idx)
-            if comment_key in comments:
-                assert comments[comment_key] == score.comment, (
-                    f"Comment mismatch at ({student_row_idx}, {col_idx}): "
-                    f"expected '{score.comment}', got '{comments[comment_key]}'"
-                )
+
+            row = next((r for r in rows if r.get("Student Name") == student.name), None)
+            if row is None:
+                continue
+
+            assert row.get(comment_header) == score.comment, (
+                f"Comment mismatch for {student.name} / {comment_header}"
+            )
         
     finally:
         # Clean up the temporary file

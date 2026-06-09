@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/gitnexus-code-intelligence.py",
+        "matcher": "UserPromptSubmit"
+      }
+    ]
+  }
+}

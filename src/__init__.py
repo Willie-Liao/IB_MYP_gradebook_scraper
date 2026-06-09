@@ -7,10 +7,12 @@ from .excel_exporter import ExcelExporter
 from .extractors import ScoreExtractor, StudentExtractor, TaskExtractor, TermGradeExtractor
 from .models import GradebookData, Score, Student, Task, TermGrade
 from .scraper import GradebookScraper
+from .url_utils import parse_school_from_url
 
 __all__ = [
     # Main scraper
     "GradebookScraper",
+    "parse_school_from_url",
     # Authentication
     "Authenticator",
     "SessionManager",

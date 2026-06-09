@@ -31,9 +31,14 @@ class Score:
 
 @dataclass
 class TermGrade:
-    """Represents a student's final term grade."""
+    """Represents a student's term profile from the MYP term grades page."""
     student_name: str
     grade: str  # 1-8, INC, or N/A
+    user_id: Optional[str] = None
+    criterion_a: Optional[str] = None
+    criterion_b: Optional[str] = None
+    criterion_c: Optional[str] = None
+    criterion_d: Optional[str] = None
 
 
 @dataclass
